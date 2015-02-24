@@ -9,7 +9,7 @@ from multiprocessing import Lock
 
 
 RECV_SIZE = 1024
-TIMEOUT = 30
+TIMEOUT = 10
 user_list = []
 lock = Lock()
 user_lock = 0
@@ -53,13 +53,44 @@ def thread_remove_user(user):
         lock.release()
 
 # multithread safe heartbeat function
-def update_live_user(user):
+def thread_update_live_user(user):
     global lock
     lock.acquire()
     try:
         user.active = True
     finally:
         lock.release()
+
+# multithread safe check of all the live users
+def thread_check_pulse():
+    global lock
+    global user_list
+    lock.acquire()
+    try:
+        for user in user_list:
+            if user.active == False:
+                user.loggedin = False
+            user.active = False
+    finally:
+        lock.release()
+
+    time.sleep(TIMEOUT)
+    check = threading.Thread(target=thread_check_pulse)
+    check.daemon = True
+    check.start()
+    
+    return(0)
+
+# return string with pretty printed online users
+def get_online_users():
+    global user_list
+    list_str = ''
+
+    for user in user_list:
+        if user.loggedin == True:
+            list_str = list_str + user.username + '\n'
+
+    return list_str
 
 # serve the connections
 def serve_client(connection):
@@ -115,8 +146,7 @@ def serve_client(connection):
             time.sleep(.1)
             connection.sendall('Logged out')
         else:
-            user # = find correct user
-            update_live_user(user)
+            thread_update_live_user(user)
             connection.sendall('LIVE')
             time.sleep(.1)
             connection.sendall('Still living')
@@ -124,7 +154,6 @@ def serve_client(connection):
         userInput = connection.recv(RECV_SIZE)
         username = connection.recv(RECV_SIZE)
         user = find_user(username)
-        # print 'command received: ' + userInput
         if user == None:
             print 'user broke off'
         elif userInput == 'logout':
@@ -132,6 +161,11 @@ def serve_client(connection):
             connection.sendall('LOGO')
             time.sleep(.1)
             connection.sendall('logout')
+        elif userInput == 'online':
+            connection.sendall('ONLN')
+            time.sleep(.1)
+            online_users = get_online_users()
+            connection.sendall(online_users)
         else:
             connection.sendall('RECV')
             time.sleep(.1)
@@ -164,6 +198,10 @@ def main_thread():
         user_list.append(User(line[0], line[1], False, False))
         next_line = file_obj.readline()
     
+    check = threading.Thread(target=thread_check_pulse)
+    check.daemon = True
+    check.start()
+
     while True:
 
         conn, addr = s.accept()
