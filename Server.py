@@ -4,6 +4,7 @@ import signal
 import os
 import threading
 import time
+import sys
 from multiprocessing import Lock
 
 
@@ -106,8 +107,10 @@ def serve_client(connection):
         username = connection.recv(RECV_SIZE)
         print 'heartbeat received from ' + username
         user = find_user(username)
-        
-        if user.loggedin == False:
+
+        if user == None:
+            print 'user broke off'
+        elif user.loggedin == False:
             connection.sendall('DEAD')
             time.sleep(.1)
             connection.sendall('Logged out')
@@ -119,10 +122,20 @@ def serve_client(connection):
             connection.sendall('Still living')
     elif greeting == 'CMND':
         userInput = connection.recv(RECV_SIZE)
-        print 'command received: ' + userInput
-        connection.sendall('RECV')
-        time.sleep(.1)
-        connection.sendall('received' + userInput)
+        username = connection.recv(RECV_SIZE)
+        user = find_user(username)
+        # print 'command received: ' + userInput
+        if user == None:
+            print 'user broke off'
+        elif userInput == 'logout':
+            thread_remove_user(user)
+            connection.sendall('LOGO')
+            time.sleep(.1)
+            connection.sendall('logout')
+        else:
+            connection.sendall('RECV')
+            time.sleep(.1)
+            connection.sendall('received' + userInput)
 
     connection.close()
     print 'thread terminated'
@@ -131,8 +144,13 @@ def serve_client(connection):
 def main_thread():
     
     global user_list
+
+    if len(sys.argv) < 2:
+        print 'usage: python Server.py <PORT NUMBER>'
+        exit(1)
+
     HOST = ''
-    PORT = int(raw_input('PORT NUMBER: '))
+    PORT = int(sys.argv[1])
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     s.bind((HOST, PORT))

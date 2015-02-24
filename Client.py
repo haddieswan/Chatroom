@@ -2,17 +2,19 @@ import socket
 import signal
 import time
 import threading
+import sys
 
 RECV_SIZE = 1024
 HOST = 'localhost'
-HEARTBEAT = 1
+HEARTBEAT = 5
 PORT = 0
 USERNAME = ''
 
 def ctrl_c_handler(signum, frame):
     exit(0)
 
-def alarm_handler():
+def heartbeat():
+
     global HOST
     global PORT
     global USERNAME
@@ -33,7 +35,7 @@ def alarm_handler():
     sock.close()
 
     time.sleep(HEARTBEAT)
-    t = threading.Thread(target=alarm_handler)
+    t = threading.Thread(target=heartbeat)
     t.daemon = True
     t.start()
 
@@ -45,7 +47,11 @@ def main():
     global PORT
     global USERNAME
 
-    PORT = int(raw_input('PORT NUMBER: '))
+    if len(sys.argv) < 2:
+        print 'usage: python Client.py <PORT NUMBER>'
+        exit(1)
+
+    PORT = int(sys.argv[1])
 
     # basic client socket connection
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -70,7 +76,7 @@ def main():
         sock.close()
 
     logged_in = True
-    t = threading.Thread(target=alarm_handler)
+    t = threading.Thread(target=heartbeat)
     t.daemon = True
     t.start()
 
@@ -81,10 +87,15 @@ def main():
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((HOST, PORT))
         sock.sendall('CMND')
-        time.sleep(.3)
+        time.sleep(.1)
         sock.sendall(userInput)
+        time.sleep(.1)
+        sock.sendall(USERNAME)
         reply_code = sock.recv(RECV_SIZE)
         description = sock.recv(RECV_SIZE)
+
+        if reply_code == 'LOGO':
+            logged_in = False
         sock.close()
 
     exit(0)
@@ -92,7 +103,6 @@ def main():
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, ctrl_c_handler)
-    signal.signal(signal.SIGALRM, alarm_handler)
     main()
 
 # log in
