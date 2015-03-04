@@ -13,6 +13,8 @@ TIMEOUT = 10
 user_list = []
 lock = Lock()
 user_lock = 0
+PORT = 0
+HOST = ''
 
 # class for users on the client side
 class User:
@@ -23,6 +25,7 @@ class User:
         self.password = password
         self.active = active
         self.loggedin = loggedin
+        self.port = 0
 
     def __str__(self):
         return self.username
@@ -61,6 +64,15 @@ def thread_update_live_user(user):
     finally:
         lock.release()
 
+# multithread safe update of user port
+def thread_add_user_port(user, port):
+    global lock
+    lock.acquire()
+    try:
+        user.port = int(port)
+    finally:
+        lock.release()
+
 # multithread safe check of all the live users
 def thread_check_pulse():
     global lock
@@ -92,6 +104,20 @@ def get_online_users():
 
     return list_str
 
+def broadcast_message(message, sender):
+    global user_list
+    global HOST
+
+    for user in user_list:
+        if user.loggedin == True and user.username != sender:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                sock.connect((HOST, user.port))
+                sock.sendall(sender + ': ' + message)
+            except Exception:
+                print 'client connection closed'
+            sock.close()
+
 # serve the connections
 def serve_client(connection):
     print 'fresh thread launched'
@@ -102,6 +128,7 @@ def serve_client(connection):
     # logging in for the first time
     if greeting == 'HELO':
 
+        port = connection.recv(RECV_SIZE)
         connection.sendall('USER')
         # is this necessary???
         time.sleep(.1)
@@ -125,6 +152,7 @@ def serve_client(connection):
 
                 if user.loggedin == False:
                     thread_add_user(user)
+                    thread_add_user_port(user, port)
                     connection.sendall('SUCC')
                     time.sleep(.1)
                     connection.sendall('Welcome to simple chat server!')
@@ -135,6 +163,7 @@ def serve_client(connection):
                     time.sleep(.1)
                     connection.sendall('Your account is already logged in\n')
     elif greeting == 'LIVE':
+
         username = connection.recv(RECV_SIZE)
         print 'heartbeat received from ' + username
         user = find_user(username)
@@ -151,33 +180,43 @@ def serve_client(connection):
             time.sleep(.1)
             connection.sendall('Still living')
     elif greeting == 'CMND':
-        userInput = connection.recv(RECV_SIZE)
+
+        user_input = connection.recv(RECV_SIZE)
         username = connection.recv(RECV_SIZE)
         user = find_user(username)
+        input_array = user_input.split()
+
         if user == None:
             print 'user broke off'
-        elif userInput == 'logout':
+        elif user_input == 'logout':
             thread_remove_user(user)
             connection.sendall('LOGO')
             time.sleep(.1)
             connection.sendall('logout')
-        elif userInput == 'online':
+        elif user_input == 'online':
             connection.sendall('ONLN')
             time.sleep(.1)
             online_users = get_online_users()
             connection.sendall(online_users)
+        elif input_array[0] == 'broadcast':
+            sender = input_array.pop()
+            input_array.remove(input_array[0])
+            broadcast_message(' '.join(input_array), sender)
         else:
             connection.sendall('RECV')
             time.sleep(.1)
-            connection.sendall('received' + userInput)
+            connection.sendall('server: ' + user_input)
 
     connection.close()
     print 'thread terminated'
+    return(0)
 
 # parent process which keeps accepting connections
 def main_thread():
     
     global user_list
+    global PORT
+    global HOST
 
     if len(sys.argv) < 2:
         print 'usage: python Server.py <PORT NUMBER>'
