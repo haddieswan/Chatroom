@@ -1,3 +1,4 @@
+from multiprocessing import Lock
 import socket
 import signal
 import time
@@ -11,13 +12,21 @@ CLIENTPORT = 0
 HEARTBEAT = 5
 PORT = 0
 USERNAME = ''
+lock = Lock()
 
 def ctrl_c_handler(signum, frame):
     exit(0)
 
 def serve_client(connection):
+    global lock
+
     message = connection.recv(RECV_SIZE)
-    print message
+    lock.acquire()
+    try:
+        sys.stdout.write(message + '\n>')
+        sys.stdout.flush()
+    finally:
+        lock.release()
     connection.close()
     return(0)
 
@@ -42,10 +51,10 @@ def heartbeat():
     reply_code = sock.recv(RECV_SIZE)
     description = sock.recv(RECV_SIZE)
 
-    if reply_code == 'DEAD':
-        print description
-        sock.close()
-        exit(0)
+    # if reply_code == 'DEAD':
+    #     print description
+    #     sock.close()
+    #     exit(0)
 
     sock.close()
 
@@ -105,6 +114,8 @@ def main():
         exit(0)
     else:
         USERNAME = sock.recv(RECV_SIZE)
+        mailbox = sock.recv(RECV_SIZE)
+        description = description + '\n' + mailbox
         sock.close()
 
     logged_in = True
@@ -118,10 +129,14 @@ def main():
 
     while logged_in:
 
-        user_input = raw_input(description + '\n>')
+        sys.stdout.write(description + '\n>')
+        sys.stdout.flush()
+        user_input = raw_input()
         input_array = user_input.split()
 
         if input_array[0] == 'broadcast':
+            user_input = user_input + ' ' + USERNAME
+        elif input_array[0] == 'message':
             user_input = user_input + ' ' + USERNAME
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

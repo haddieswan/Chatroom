@@ -9,7 +9,7 @@ from multiprocessing import Lock
 
 
 RECV_SIZE = 1024
-TIMEOUT = 10
+TIMEOUT = 15
 user_list = []
 lock = Lock()
 user_lock = 0
@@ -26,6 +26,7 @@ class User:
         self.active = active
         self.loggedin = loggedin
         self.port = 0
+        self.mailbox = []
 
     def __str__(self):
         return self.username
@@ -80,8 +81,9 @@ def thread_check_pulse():
     lock.acquire()
     try:
         for user in user_list:
-            if user.active == False:
+            if user.loggedin == True and user.active == False:
                 user.loggedin = False
+                broadcast_message(user.username + ' logged out', user.username)
             user.active = False
     finally:
         lock.release()
@@ -93,16 +95,32 @@ def thread_check_pulse():
     
     return(0)
 
+def thread_add_to_mailbox(user, message):
+    global lock
+    lock.acquire()
+    try:
+        user.mailbox.append(message)
+    finally:
+        lock.release()
+
+def thread_clear_mailbox(user):
+    global lock
+    lock.acquire()
+    try:
+        user.mailbox = []
+    finally:
+        lock.release()
+
 # return string with pretty printed online users
 def get_online_users():
     global user_list
-    list_str = ''
+    username_list = []
 
     for user in user_list:
         if user.loggedin == True:
-            list_str = list_str + user.username + '\n'
+            username_list.append(user.username)
 
-    return list_str
+    return '\n'.join(username_list)
 
 def broadcast_message(message, sender):
     global user_list
@@ -113,10 +131,26 @@ def broadcast_message(message, sender):
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
                 sock.connect((HOST, user.port))
-                sock.sendall(sender + ': ' + message)
+                sock.sendall(message)
             except Exception:
                 print 'client connection closed'
             sock.close()
+
+def send_message(message, sender, receiver):
+    global HOST
+
+    rec_user = find_user(receiver)
+    if rec_user.loggedin == True:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect((HOST, rec_user.port))
+            sock.sendall(message)
+        except Exception:
+            print 'client connection closed'
+        sock.close()
+    else:
+        thread_add_to_mailbox(rec_user, message)
+
 
 # serve the connections
 def serve_client(connection):
@@ -155,9 +189,20 @@ def serve_client(connection):
                     thread_add_user_port(user, port)
                     connection.sendall('SUCC')
                     time.sleep(.1)
-                    connection.sendall('Welcome to simple chat server!')
+                    connection.sendall('>Welcome to simple chat server!')
                     time.sleep(.1)
                     connection.sendall(username)
+                    time.sleep(.1)
+
+                    # check mail
+                    if not user.mailbox:
+                        mail = '>No offline messages'
+                    else:
+                        mail = '\n'.join(user.mailbox)
+                        thread_clear_mailbox(user)
+
+                    connection.sendall('>Offline Messages:\n' + mail)
+                    broadcast_message(username + ' logged in', username)
                 else:
                     connection.sendall('FAIL')
                     time.sleep(.1)
@@ -171,9 +216,7 @@ def serve_client(connection):
         if user == None:
             print 'user broke off'
         elif user.loggedin == False:
-            connection.sendall('DEAD')
-            time.sleep(.1)
-            connection.sendall('Logged out')
+            print 'user died, no heartbeat'
         else:
             thread_update_live_user(user)
             connection.sendall('LIVE')
@@ -193,6 +236,7 @@ def serve_client(connection):
             connection.sendall('LOGO')
             time.sleep(.1)
             connection.sendall('logout')
+            broadcast_message(user.username + ' logged out', user.username)
         elif user_input == 'online':
             connection.sendall('ONLN')
             time.sleep(.1)
@@ -201,7 +245,15 @@ def serve_client(connection):
         elif input_array[0] == 'broadcast':
             sender = input_array.pop()
             input_array.remove(input_array[0])
-            broadcast_message(' '.join(input_array), sender)
+            message = ' '.join(input_array)
+            broadcast_message(sender + ': ' + message, sender)
+        elif input_array[0] == 'message':
+            sender = input_array.pop()
+            receiver = input_array[1]
+            input_array.remove(input_array[0])
+            input_array.remove(input_array[0])
+            message = ' '.join(input_array)
+            send_message(sender + ': ' + message, sender, receiver)
         else:
             connection.sendall('RECV')
             time.sleep(.1)
