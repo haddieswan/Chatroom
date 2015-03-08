@@ -9,7 +9,7 @@ from multiprocessing import Lock
 
 
 RECV_SIZE = 1024
-TIMEOUT = 15
+TIMEOUT = 45
 user_list = []
 lock = Lock()
 user_lock = 0
@@ -33,6 +33,7 @@ class User:
 
 # find in user by username
 def find_user(username):
+    global user_list
     for u in user_list:
         if u.username == username:
             return u
@@ -53,6 +54,7 @@ def thread_remove_user(user):
     lock.acquire()
     try:
         user.loggedin = False
+        user.port = 0
     finally:
         lock.release()
 
@@ -140,42 +142,69 @@ def send_message(message, sender, receiver):
     global HOST
 
     rec_user = find_user(receiver)
-    if rec_user.loggedin == True:
+    if rec_user == None:
+        ret_user = find_user(sender)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect((HOST, ret_user.port))
+            sock.sendall(receiver + ' is not a valid user.')
+        except Exception:
+            # guaranteed delivery, will at least go to mailbox
+            thread_add_to_mailbox(ret_user, message)
+        sock.close()
+    elif rec_user.loggedin == True:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.connect((HOST, rec_user.port))
             sock.sendall(message)
         except Exception:
-            print 'client connection closed'
+            # guaranteed delivery, will at least go to mailbox
+            thread_add_to_mailbox(rec_user, message)
         sock.close()
     else:
         thread_add_to_mailbox(rec_user, message)
 
+def delay_send(connection, code, message):    
+    try:
+        connection.sendall(code)
+        time.sleep(.1)
+        connection.sendall(message)
+    except Exception:
+        print 'connection broken'
+
+def check_port_free(port_number):
+    global user_list
+    for user in user_list:
+        if user.port == port_number:
+            return False
+    return True
+
 
 # serve the connections
 def serve_client(connection):
-    print 'fresh thread launched'
 
     global user_list
+
     greeting = connection.recv(RECV_SIZE)
     print greeting
-    # logging in for the first time
-    if greeting == 'HELO':
+    if greeting == 'PTCK':
+        port_to_check = int(connection.recv(RECV_SIZE))
+        port_free = check_port_free(port_to_check)
+        if port_free:
+            delay_send(connection, 'GDPT', '')
+        else:
+            delay_send(connection, 'BDPT', '')
+    elif greeting == 'HELO':
 
         port = connection.recv(RECV_SIZE)
-        connection.sendall('USER')
-        # is this necessary???
-        time.sleep(.1)
-        connection.sendall('Username: ')
+        delay_send(connection, 'USER', 'Username: ')
         username = connection.recv(RECV_SIZE)
 
         # check to see if it's a valid username
         user = find_user(username)
         if user == None:
             try:
-                connection.sendall('FAIL')
-                time.sleep(.1)
-                connection.sendall('User not found. Try again')
+                delay_send(connection, 'FAIL', 'User not found. Try again')
             except Exception:
                 print 'client connection closed'
         else:
@@ -187,12 +216,10 @@ def serve_client(connection):
                 if user.loggedin == False:
                     thread_add_user(user)
                     thread_add_user_port(user, port)
-                    connection.sendall('SUCC')
-                    time.sleep(.1)
-                    connection.sendall('>Welcome to simple chat server!')
+                    delay_send(connection, 'SUCC', 
+                        '>Welcome to simple chat server!')
                     time.sleep(.1)
                     connection.sendall(username)
-                    time.sleep(.1)
 
                     # check mail
                     if not user.mailbox:
@@ -204,9 +231,8 @@ def serve_client(connection):
                     connection.sendall('>Offline Messages:\n' + mail)
                     broadcast_message(username + ' logged in', username)
                 else:
-                    connection.sendall('FAIL')
-                    time.sleep(.1)
-                    connection.sendall('Your account is already logged in\n')
+                    delay_send(connection, 'FAIL', 
+                        'Your account is already logged in\n')
     elif greeting == 'LIVE':
 
         username = connection.recv(RECV_SIZE)
@@ -219,9 +245,7 @@ def serve_client(connection):
             print 'user died, no heartbeat'
         else:
             thread_update_live_user(user)
-            connection.sendall('LIVE')
-            time.sleep(.1)
-            connection.sendall('Still living')
+            delay_send(connection, 'LIVE', 'Still living')
     elif greeting == 'CMND':
 
         user_input = connection.recv(RECV_SIZE)
@@ -233,31 +257,33 @@ def serve_client(connection):
             print 'user broke off'
         elif user_input == 'logout':
             thread_remove_user(user)
-            connection.sendall('LOGO')
-            time.sleep(.1)
-            connection.sendall('logout')
-            broadcast_message(user.username + ' logged out', user.username)
+            delay_send(connection, 'LOGO', 'logout')
+            broadcast_message(username + ' logged out', username)
         elif user_input == 'online':
-            connection.sendall('ONLN')
-            time.sleep(.1)
             online_users = get_online_users()
-            connection.sendall(online_users)
+            delay_send(connection, 'ONLN', online_users)
         elif input_array[0] == 'broadcast':
-            sender = input_array.pop()
+            delay_send(connection, 'BCST', '')
             input_array.remove(input_array[0])
             message = ' '.join(input_array)
-            broadcast_message(sender + ': ' + message, sender)
+            broadcast_message(username + ': ' + message, username)
         elif input_array[0] == 'message':
-            sender = input_array.pop()
+            delay_send(connection, 'MESG', '')
             receiver = input_array[1]
             input_array.remove(input_array[0])
             input_array.remove(input_array[0])
             message = ' '.join(input_array)
-            send_message(sender + ': ' + message, sender, receiver)
+            send_message(username + ': ' + message, username, receiver)
+        elif input_array[0] == 'getaddress':
+            contact = input_array[1]
+            if len(input_array) == 2 and username != contact:
+                contact_user = find_user(contact)
+                delay_send(connection, 'GETA', str(contact_user.port) + ' '
+                    + contact)
+            else:
+                delay_send(connection, 'NGET', 'Unable to retrieve port')
         else:
-            connection.sendall('RECV')
-            time.sleep(.1)
-            connection.sendall('server: ' + user_input)
+            delay_send(connection, 'RECV', 'server: ' + user_input)
 
     connection.close()
     print 'thread terminated'
@@ -307,27 +333,23 @@ def authenticate(connection, user, username):
     count = 0
     verified = False
     correct_pass = user.password
-    connection.sendall('PASS')
-    time.sleep(.1)
-    connection.sendall('Password: ')
+    delay_send(connection, 'PASS', 'Password: ')
     
     while count < 3 and not verified:
-        
-        password = connection.recv(RECV_SIZE)
+        try:
+            password = connection.recv(RECV_SIZE)
+        except Exception:
+            print 'connection with user broken'
 
         if password == correct_pass:
             verified = True
         elif count == 2:
-            connection.sendall('FAIL')
-            time.sleep(.1)
-            connection.sendall('Due to multiple login failures, your account ' +
-                               'has been blocked. Please try again after ' +
-                               'sometime.')
+            delay_send(connection, 'FAIL', 'Due to multiple login failures, ' + 
+                                   'your account has been blocked. Please ' +
+                                   'try again after some time has passed.')
         else:
-            connection.sendall('DENY')
-            time.sleep(.1)
-            connection.sendall('Invalid Password. ' + 
-                               'Please try again\n>Password: ')
+            delay_send(connection, 'DENY', 'Invalid Password. ' + 
+                                           'Please try again\n>Password: ')
         count = count + 1
 
     return verified
