@@ -27,6 +27,7 @@ class User:
         self.loggedin = loggedin
         self.port = 0
         self.mailbox = []
+        self.blocked_me = {}
 
     def __str__(self):
         return self.username
@@ -73,6 +74,22 @@ def thread_add_user_port(user, port):
     lock.acquire()
     try:
         user.port = int(port)
+    finally:
+        lock.release()
+
+def thread_add_blocking_user(user, blocking_user):
+    global lock
+    lock.acquire()
+    try:
+        user.blocked_me[blocking_user] = 1
+    finally:
+        lock.release()
+
+def thread_remove_blocking_user(user, blocking_user):
+    global lock
+    lock.acquire()
+    try:
+        del user.blocked_me[blocking_user]
     finally:
         lock.release()
 
@@ -256,32 +273,62 @@ def serve_client(connection):
         if user == None:
             print 'user broke off'
         elif user_input == 'logout':
+
             thread_remove_user(user)
             delay_send(connection, 'LOGO', 'logout')
             broadcast_message(username + ' logged out', username)
         elif user_input == 'online':
+
             online_users = get_online_users()
             delay_send(connection, 'ONLN', online_users)
         elif input_array[0] == 'broadcast':
+
             delay_send(connection, 'BCST', '')
             input_array.remove(input_array[0])
             message = ' '.join(input_array)
             broadcast_message(username + ': ' + message, username)
         elif input_array[0] == 'message':
+
             delay_send(connection, 'MESG', '')
             receiver = input_array[1]
             input_array.remove(input_array[0])
             input_array.remove(input_array[0])
-            message = ' '.join(input_array)
-            send_message(username + ': ' + message, username, receiver)
+
+            try:
+                user.blocked_me[receiver]
+                send_message('You are blocked by ' + receiver, '', username)
+            except Exception:
+                message = ' '.join(input_array)
+                send_message(username + ': ' + message, username, receiver)
         elif input_array[0] == 'getaddress':
+
             contact = input_array[1]
             if len(input_array) == 2 and username != contact:
-                contact_user = find_user(contact)
-                delay_send(connection, 'GETA', str(contact_user.port) + ' '
-                    + contact)
+                try:
+                    user.blocked_me[contact]
+                    delay_send(connection, 'NGET', 'Blocked by ' + contact)
+                except Exception:
+                    contact_user = find_user(contact)
+                    delay_send(connection, 'GETA', str(contact_user.port) + ' '
+                        + contact)
             else:
                 delay_send(connection, 'NGET', 'Unable to retrieve port')
+        elif input_array[0] == 'block':
+
+            to_block = input_array[1]
+            if len(input_array) == 2 and username != to_block:
+                thread_add_blocking_user(find_user(to_block), username)
+                delay_send(connection, 'BLOK', '')
+            else:
+                delay_send(connection, 'NBLK', 'Unable to block user')
+        elif input_array[0] == 'unblock':
+
+            to_unblock = input_array[1]
+            if len(input_array) == 2 and username != to_unblock:
+                thread_remove_blocking_user(find_user(to_unblock), username)
+                delay_send(connection, 'UBLK', '')
+            else:
+                delay_send(connection, 'NUBK', 'Unable to unblock user')
         else:
             delay_send(connection, 'RECV', 'server: ' + user_input)
 
@@ -362,4 +409,5 @@ def main():
     signal.signal(signal.SIGPIPE, signal.SIG_IGN)
     main_thread()
 
-if __name__ == '__main__': main()
+if __name__ == '__main__': 
+    main()

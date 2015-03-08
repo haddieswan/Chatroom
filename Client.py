@@ -51,12 +51,6 @@ def heartbeat():
     sock.sendall(USERNAME)
     reply_code = sock.recv(RECV_SIZE)
     description = sock.recv(RECV_SIZE)
-
-    # if reply_code == 'DEAD':
-    #     print description
-    #     sock.close()
-    #     exit(0)
-
     sock.close()
 
     time.sleep(HEARTBEAT)
@@ -101,7 +95,6 @@ def main():
                 start_port = start_port + 1
         else:
             start_port = start_port + 1
-    print start_port
 
     # basic client socket connection
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -153,7 +146,11 @@ def main():
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if input_array[0] == 'private' and input_array[1] == p2p_user:
             sock.connect((HOST, p2p_port))
-            sock.sendall(USERNAME + ': ' + input_array[2])
+            input_array.reverse()
+            input_array.pop()
+            input_array.pop()
+            input_array.reverse()
+            sock.sendall(USERNAME + ': ' + ' '.join(input_array))
         else:
             sock.connect((HOST, PORT))
             sock.sendall('CMND')
