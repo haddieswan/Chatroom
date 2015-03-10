@@ -236,7 +236,6 @@ def serve_client(connection):
                     delay_send(connection, 'SUCC', 
                         '>Welcome to simple chat server!')
                     time.sleep(.1)
-                    connection.sendall(username)
 
                     # check mail
                     if not user.mailbox:
@@ -245,7 +244,12 @@ def serve_client(connection):
                         mail = '\n'.join(user.mailbox)
                         thread_clear_mailbox(user)
 
-                    connection.sendall('>Offline Messages:\n' + mail)
+                    delay_send(connection, username,
+                        '>Offline Messages:\n' + mail)
+                    # connection.sendall(username)
+
+                    # time.sleep(.1)
+                    # connection.sendall('>Offline Messages:\n' + mail)
                     broadcast_message(username + ' logged in', username)
                 else:
                     delay_send(connection, 'FAIL', 
