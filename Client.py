@@ -18,6 +18,14 @@ lock = Lock()
 def ctrl_c_handler(signum, frame):
     exit(0)
 
+def delay_send(connection, code, message):    
+    try:
+        connection.sendall(code)
+        time.sleep(.1)
+        connection.sendall(message)
+    except Exception:
+        print 'connection broken'
+
 def serve_client(connection):
     global lock
 
@@ -46,9 +54,7 @@ def heartbeat():
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((HOST, PORT))
-    sock.sendall('LIVE')
-    time.sleep(.1)
-    sock.sendall(USERNAME)
+    delay_send(sock, 'LIVE', USERNAME)
     reply_code = sock.recv(RECV_SIZE)
     description = sock.recv(RECV_SIZE)
     sock.close()
@@ -75,34 +81,34 @@ def main():
 
     HOST = sys.argv[1]
     PORT = int(sys.argv[2])
+    CLIENTHOST = socket.gethostbyname(socket.gethostname())
 
-    start_port = random.randint(1023, 65535)
+    CLIENTPORT = random.randint(1023, 65535)
     while True:
+
         client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((HOST, PORT))
-        sock.sendall('PTCK')
-        time.sleep(.1)
-        sock.sendall(str(start_port))
+        delay_send(sock, 'PTCK', str(start_port))
+
         reply_code = sock.recv(RECV_SIZE)
         description = sock.recv(RECV_SIZE)
+
         if reply_code == 'GDPT':
             try:
-                client_sock.bind((HOST, start_port))
+                client_sock.bind((CLIENTHOST, CLIENTPORT))
                 client_sock.listen(1)
                 break
             except Exception:
-                start_port = start_port + 1
+                CLIENTPORT = CLIENTPORT + 1
         else:
-            start_port = start_port + 1
+            CLIENTPORT = start_port + 1
 
     # basic client socket connection
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((HOST, PORT))
 
-    sock.sendall('HELO')
-    time.sleep(.1)
-    sock.sendall(str(start_port))
+    delay_send(sock, 'HELO', str(start_port))
     reply_code = sock.recv(RECV_SIZE)
     description = sock.recv(RECV_SIZE)
 
@@ -122,7 +128,6 @@ def main():
         description = description + '\n' + mailbox
         sock.close()
 
-
     listener = threading.Thread(target=listener_thread, args=(client_sock,))
     listener.daemon = True
     listener.start()
@@ -137,8 +142,14 @@ def main():
 
     while logged_in:
 
-        sys.stdout.write(description + '\n>')
-        sys.stdout.flush()
+        global lock
+        lock.acquire()
+        try:
+            sys.stdout.write(description + '\n>')
+            sys.stdout.flush()
+        finally:
+            lock.release()
+            
         description = ''
         user_input = raw_input()
         input_array = user_input.split()
@@ -153,11 +164,10 @@ def main():
             sock.sendall(USERNAME + ': ' + ' '.join(input_array))
         else:
             sock.connect((HOST, PORT))
-            sock.sendall('CMND')
-            time.sleep(.1)
-            sock.sendall(user_input)
+            delay_send(sock, 'CMND', user_input)
             time.sleep(.1)
             sock.sendall(USERNAME)
+
             reply_code = sock.recv(RECV_SIZE)
             description = sock.recv(RECV_SIZE)
 
