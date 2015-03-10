@@ -26,6 +26,7 @@ class User:
         self.active = active
         self.loggedin = loggedin
         self.port = 0
+        self.ip = ''
         self.mailbox = []
         self.blocked_me = {}
 
@@ -69,11 +70,12 @@ def thread_update_live_user(user):
         lock.release()
 
 # multithread safe update of user port
-def thread_add_user_port(user, port):
+def thread_add_user_port_ip(user, port, ip):
     global lock
     lock.acquire()
     try:
         user.port = int(port)
+        user.ip = ip
     finally:
         lock.release()
 
@@ -143,27 +145,25 @@ def get_online_users():
 
 def broadcast_message(message, sender):
     global user_list
-    global HOST
 
     for user in user_list:
         if user.loggedin == True and user.username != sender:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
-                sock.connect((HOST, user.port))
+                sock.connect((user.ip, user.port))
                 sock.sendall(message)
             except Exception:
                 print 'client connection closed'
             sock.close()
 
 def send_message(message, sender, receiver):
-    global HOST
 
     rec_user = find_user(receiver)
-    if rec_user == None:
+    if rec_user == None or receiver == sender:
         ret_user = find_user(sender)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            sock.connect((HOST, ret_user.port))
+            sock.connect((ret_user.ip, ret_user.port))
             sock.sendall(receiver + ' is not a valid user.')
         except Exception:
             # guaranteed delivery, will at least go to mailbox
@@ -172,7 +172,7 @@ def send_message(message, sender, receiver):
     elif rec_user.loggedin == True:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            sock.connect((HOST, rec_user.port))
+            sock.connect((rec_user.ip, rec_user.port))
             sock.sendall(message)
         except Exception:
             # guaranteed delivery, will at least go to mailbox
@@ -203,7 +203,6 @@ def serve_client(connection):
     global user_list
 
     greeting = connection.recv(RECV_SIZE)
-    print greeting
     if greeting == 'PTCK':
         port_to_check = int(connection.recv(RECV_SIZE))
         port_free = check_port_free(port_to_check)
@@ -213,7 +212,9 @@ def serve_client(connection):
             delay_send(connection, 'BDPT', '')
     elif greeting == 'HELO':
 
-        port = connection.recv(RECV_SIZE)
+        port_ip = connection.recv(RECV_SIZE).split()
+        port = port_ip[0]
+        ip = port_ip[1]
         delay_send(connection, 'USER', 'Username: ')
         username = connection.recv(RECV_SIZE)
 
@@ -232,7 +233,7 @@ def serve_client(connection):
 
                 if user.loggedin == False:
                     thread_add_user(user)
-                    thread_add_user_port(user, port)
+                    thread_add_user_port_ip(user, port, ip)
                     delay_send(connection, 'SUCC', 
                         '>Welcome to simple chat server!')
                     time.sleep(.1)
@@ -246,10 +247,6 @@ def serve_client(connection):
 
                     delay_send(connection, username,
                         '>Offline Messages:\n' + mail)
-                    # connection.sendall(username)
-
-                    # time.sleep(.1)
-                    # connection.sendall('>Offline Messages:\n' + mail)
                     broadcast_message(username + ' logged in', username)
                 else:
                     delay_send(connection, 'FAIL', 
@@ -257,7 +254,7 @@ def serve_client(connection):
     elif greeting == 'LIVE':
 
         username = connection.recv(RECV_SIZE)
-        print 'heartbeat received from ' + username
+        print 'LIVE: ' + username
         user = find_user(username)
 
         if user == None:

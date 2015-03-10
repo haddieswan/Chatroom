@@ -108,7 +108,7 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((HOST, PORT))
 
-    delay_send(sock, 'HELO', str(CLIENTPORT))
+    delay_send(sock, 'HELO', str(CLIENTPORT) + ' ' + CLIENTHOST)
     reply_code = sock.recv(RECV_SIZE)
     description = sock.recv(RECV_SIZE)
 
