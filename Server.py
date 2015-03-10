@@ -311,7 +311,7 @@ def serve_client(connection):
                 except Exception:
                     contact_user = find_user(contact)
                     delay_send(connection, 'GETA', str(contact_user.port) + ' '
-                        + contact)
+                        + contact_user.ip + ' ' + contact)
             else:
                 delay_send(connection, 'NGET', 'Unable to retrieve port')
         elif input_array[0] == 'block':

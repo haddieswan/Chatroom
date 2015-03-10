@@ -138,6 +138,7 @@ def main():
 
     logged_in = True
     p2p_port = 0
+    p2p_ip = ''
     p2p_user = ''
 
     while logged_in:
@@ -156,7 +157,7 @@ def main():
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if input_array[0] == 'private' and input_array[1] == p2p_user:
-            sock.connect((HOST, p2p_port))
+            sock.connect((p2p_ip, p2p_port))
             input_array.reverse()
             input_array.pop()
             input_array.pop()
@@ -176,7 +177,8 @@ def main():
             elif reply_code == 'GETA':
                 private_info = description.split()
                 p2p_port = int(private_info[0])
-                p2p_user = private_info[1]
+                p2p_ip = private_info[1]
+                p2p_user = private_info[2]
         sock.close()
 
     exit(0)
