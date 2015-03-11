@@ -46,6 +46,10 @@ def serve_client(connection):
     finally:
         lock.release()
 
+    if reply_code == 'LOGO':
+        connection.close()
+        exit(0)
+
     if reply_code == 'GETA':
         p2p_lock.acquire()
         try:

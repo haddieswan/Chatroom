@@ -271,26 +271,26 @@ def serve_client(connection):
 
             if verified:
 
-                if user.logged_in == False:
-                    thread_add_user(user)
-                    thread_add_user_port_ip(user, port, ip)
-                    delay_send(connection, 'SUCC', 
-                        '>Welcome to simple chat server!')
-                    time.sleep(.1)
+                if user.logged_in == True:
+                    send_message('Another computer has logged in with your ' + 
+                        'username and password.', '', username, 'LOGO')
+                    
+                thread_add_user(user)
+                thread_add_user_port_ip(user, port, ip)
+                delay_send(connection, 'SUCC', 
+                    '>Welcome to simple chat server!')
+                time.sleep(.1)
 
-                    # check mail
-                    if not user.mailbox:
-                        mail = '>No offline messages'
-                    else:
-                        mail = '\n'.join(user.mailbox)
-                        thread_clear_mailbox(user)
-
-                    delay_send(connection, username,
-                        '>Offline Messages:\n' + mail)
-                    broadcast_message(username + ' logged in', username)
+                # check mail
+                if not user.mailbox:
+                    mail = '>No offline messages'
                 else:
-                    delay_send(connection, 'FAIL', 
-                        'Your account is already logged in\n')
+                    mail = '\n'.join(user.mailbox)
+                    thread_clear_mailbox(user)
+
+                delay_send(connection, username,
+                    '>Offline Messages:\n' + mail)
+                broadcast_message(username + ' logged in', username)
     elif greeting == 'LIVE':
 
         username = connection.recv(RECV_SIZE)
