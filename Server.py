@@ -72,7 +72,7 @@ def thread_update_live_user(user):
     finally:
         lock.release()
 
-# multithread safe update of user port
+# multithread safe update of user port and ip
 def thread_add_user_port_ip(user, port, ip):
     global lock
     lock.acquire()
@@ -82,6 +82,7 @@ def thread_add_user_port_ip(user, port, ip):
     finally:
         lock.release()
 
+# multithread safe update of user blocked list
 def thread_add_blocking_user(user, blocking_user):
     global lock
     lock.acquire()
@@ -90,6 +91,7 @@ def thread_add_blocking_user(user, blocking_user):
     finally:
         lock.release()
 
+# multithread safe removal of user blocked list
 def thread_remove_blocking_user(user, blocking_user):
     global lock
     lock.acquire()
@@ -98,6 +100,7 @@ def thread_remove_blocking_user(user, blocking_user):
     finally:
         lock.release()
 
+# multithread safe addition of user peer
 def thread_add_private_peer(user, peer):
     global lock
     lock.acquire()
@@ -106,6 +109,7 @@ def thread_add_private_peer(user, peer):
     finally:
         lock.release()
 
+# multithread safe lock out of user
 def thread_lock_out_user(user):
     global lock
     lock.acquire()
@@ -114,6 +118,7 @@ def thread_lock_out_user(user):
     finally:
         lock.release()
 
+# multithread safe unlock of user
 def thread_unlock_out_user(user):
     global lock
     lock.acquire()
@@ -122,6 +127,7 @@ def thread_unlock_out_user(user):
     finally:
         lock.release()
 
+# multithread safe addition to mailbox
 def thread_add_to_mailbox(user, message):
     global lock
     lock.acquire()
@@ -130,6 +136,7 @@ def thread_add_to_mailbox(user, message):
     finally:
         lock.release()
 
+# multithread safe clearing of mailbox
 def thread_clear_mailbox(user):
     global lock
     lock.acquire()
@@ -153,6 +160,7 @@ def thread_check_pulse():
     finally:
         lock.release()
 
+    # launch next pulse thread after TIMEOUT seconds
     time.sleep(TIMEOUT)
     check = threading.Thread(target=thread_check_pulse)
     check.daemon = True
@@ -166,7 +174,9 @@ def get_online_users(current_user):
     username_list = []
 
     for user in user_list:
+        # do not include offline users and current user
         if user.logged_in == True and user is not current_user:
+            # do not allow blocked users to see
             try:
                 current_user.blocked_me[user.username]
                 continue
@@ -175,11 +185,14 @@ def get_online_users(current_user):
 
     return '\n'.join(username_list)
 
+# send messages out to all online clients
 def broadcast_message(message, sender, is_login):
     global user_list
 
     send_user = find_user(sender)
     for user in user_list:
+        # presence broadcasts and other broadcasts have
+        # different requirements as far as blocking goes
         if is_login:
             try:
                 user.blocked_me[send_user.username]
@@ -207,6 +220,7 @@ def broadcast_message(message, sender, is_login):
                         print 'client connection closed'
                     sock.close()
 
+# send message through the server to a specific client
 def send_message(message, sender, receiver, code):
 
     rec_user = find_user(receiver)
@@ -232,6 +246,7 @@ def send_message(message, sender, receiver, code):
     else:
         thread_add_to_mailbox(rec_user, message)
 
+# send with a slight delay, fixed some timing issues I was having
 def delay_send(connection, code, message):    
     try:
         connection.sendall(code)
@@ -240,6 +255,7 @@ def delay_send(connection, code, message):
     except Exception:
         print 'connection broken'
 
+# check if this port is free, avoid race condition
 def check_port_free(port_number):
     global user_list
     for user in user_list:
@@ -247,6 +263,7 @@ def check_port_free(port_number):
             return False
     return True
 
+# timeout function to be called by timeout thread
 def lock_out_timeout(user):
     global LOCKOUT
     time.sleep(LOCKOUT)
@@ -259,6 +276,15 @@ def serve_client(connection):
     global user_list
 
     greeting = connection.recv(RECV_SIZE)
+
+    '''
+    PTCK - port check, see if a port is free
+    HELO - hello, initial greeting to get ready
+    USER - username, time to get username info from client
+    AUTH - authentication, getting password and checking if valid
+    LIVE - heartbeat, checking to see if the client is still online_users
+    CMND - command, numerous commands that are outlined below
+    '''
     if greeting == 'PTCK':
         port_to_check = int(connection.recv(RECV_SIZE))
         port_free = check_port_free(port_to_check)
@@ -357,6 +383,16 @@ def serve_client(connection):
         user = find_user(username)
         input_array = user_input.split()
 
+        '''
+        logout - user.logged_in is marked as False
+        online - user queries database for online users
+        broadcast - broadcasts message to all online clients
+        message - messages specific client, online or offline
+        getaddress - gets IP and port info for P2P
+        consent - gives client access to P2P information
+        block - blacklists a given user
+        unblock - removes given user from blacklist
+        '''
         if user == None:
             print 'user broke off'
         elif user_input == '\n':
@@ -380,6 +416,7 @@ def serve_client(connection):
             delay_send(connection, 'MESG', '')
             receiver = input_array[1]
 
+            # make sure to check for blocking
             try:
                 user.blocked_me[receiver]
                 send_message('You are blocked by ' + receiver, '', 
@@ -393,6 +430,7 @@ def serve_client(connection):
             contact = input_array[1]
             contact_user = find_user(contact)
 
+            # check to make sure user is not yourself
             if contact_user == None:
                 delay_send(connection, 'NGET', 
                     contact + ' is not a valid user.')
@@ -473,10 +511,10 @@ def main_thread():
     HOST = ''
     PORT = int(sys.argv[1])
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
     s.bind((HOST, PORT))
     s.listen(1)
 
+    # build all the users
     file_obj = open('credentials.txt', 'r')
     next_line = file_obj.readline()
     while next_line != '':
@@ -485,10 +523,12 @@ def main_thread():
         user_list.append(User(line[0], line[1]))
         next_line = file_obj.readline()
     
+    # launch the pulse checking daemon
     check = threading.Thread(target=thread_check_pulse)
     check.daemon = True
     check.start()
 
+    # continuously running thread manager
     while True:
 
         conn, addr = s.accept()
