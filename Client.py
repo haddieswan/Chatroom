@@ -1,3 +1,9 @@
+'''
+James Lin
+jl3782
+Client.py -- CSEE 4119 Programming Assignment 1
+'''
+
 from multiprocessing import Lock
 import socket
 import signal
@@ -210,7 +216,7 @@ def main():
     # user command and input
     while logged_in:
 
-
+        # make sure things print in order
         lock.acquire()
         try:
             sys.stdout.write(description + '\n>')
@@ -218,6 +224,7 @@ def main():
         finally:
             lock.release()
             
+        # grab user input
         description = ''
         user_input = raw_input()
         if user_input == '':
@@ -231,6 +238,7 @@ def main():
             if input_array[0] == 'private' and input_array[1] == p2p_user:
                 p2p = True
         if p2p:
+            # make sure p2p is not offline
             try:
                 sock.connect((p2p_ip, p2p_port))
                 message = user_input[(len('private ') + len(p2p_user) + 1):]
@@ -239,6 +247,7 @@ def main():
                 print (p2p_user + ' is no longer at this address. You can ' +
                     'send them an offline message through the server.')
         else:
+            # otherwise send command
             sock.connect((HOST, PORT))
             delay_send(sock, 'CMND', user_input)
             time.sleep(.1)

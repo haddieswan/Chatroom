@@ -1,4 +1,9 @@
-import Queue
+'''
+James Lin
+jl3782
+Server.py -- CSEE 4119 Programming Assignment 1
+'''
+
 import socket
 import signal
 import os
@@ -339,7 +344,7 @@ def serve_client(connection):
             # send sad message
             delay_send(connection, 'FAIL', 'Due to multiple login failures, ' + 
                                    'your account has been blocked. Please ' +
-                                   'try again after ' + str(TIMEOUT) + 
+                                   'try again after ' + str(LOCKOUT) + 
                                    ' seconds.')
         elif password != user.password:
             delay_send(connection, 'DENY', 'Invalid Password. ' + 
