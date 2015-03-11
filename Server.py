@@ -249,11 +249,16 @@ def serve_client(connection):
             delay_send(connection, 'BDPT', '')
     elif greeting == 'HELO':
 
-        port_ip = connection.recv(RECV_SIZE).split()
-        port = port_ip[0]
-        ip = port_ip[1]
+        connection.recv(RECV_SIZE)
         delay_send(connection, 'USER', 'Username: ')
-        username = connection.recv(RECV_SIZE)
+    elif greeting == 'USER':
+        try:
+            info = connection.recv(RECV_SIZE).split()
+        except Exception:
+            print 'connection broke'
+        username = info[0]
+        port = info[1]
+        ip = info[2]
 
         # check to see if it's a valid username
         user = find_user(username)
@@ -266,31 +271,53 @@ def serve_client(connection):
             delay_send(connection, 'FAIL', 
                 'Your account is still locked out\n')
         else:
-            # otherwise, it passes the first tests
-            verified = authenticate(connection, user, username)
+            thread_add_user(user)
+            thread_add_user_port_ip(user, port, ip)
+            delay_send(connection, 'PASS', 'Password: ') 
+    elif greeting == 'AUTH':
+        try:
+            info = connection.recv(RECV_SIZE).split()
+        except Exception:
+            print 'connection broke'
+        username = info[0]
+        password = info[1]
+        try_num = int(info[2])
+        user = find_user(username)
 
-            if verified:
+        if try_num == 3 and password != user.password:
+            # launch timeout thread
+            thread_lock_out_user(user)
+            t = threading.Thread(target=lock_out_timeout, args=(user,))
+            t.daemon = True
+            t.start()
 
-                if user.logged_in == True:
-                    send_message('Another computer has logged in with your ' + 
-                        'username and password.', '', username, 'LOGO')
-                    
-                thread_add_user(user)
-                thread_add_user_port_ip(user, port, ip)
-                delay_send(connection, 'SUCC', 
-                    '>Welcome to simple chat server!')
-                time.sleep(.1)
+            # send sad message
+            delay_send(connection, 'FAIL', 'Due to multiple login failures, ' + 
+                                   'your account has been blocked. Please ' +
+                                   'try again after ' + str(TIMEOUT) + 
+                                   ' seconds.')
+        elif password != user.password:
+            delay_send(connection, 'DENY', 'Invalid Password. ' + 
+                                           'Please try again\n>Password: ')
+        else:
+            if user.logged_in == True:
+                send_message('Another computer has logged in with your ' + 
+                    'username and password.', '', username, 'LOGO')
 
-                # check mail
-                if not user.mailbox:
-                    mail = '>No offline messages'
-                else:
-                    mail = '\n'.join(user.mailbox)
-                    thread_clear_mailbox(user)
+            delay_send(connection, 'SUCC', 
+                '>Welcome to simple chat server!')
+            time.sleep(.1)
 
-                delay_send(connection, username,
-                    '>Offline Messages:\n' + mail)
-                broadcast_message(username + ' logged in', username)
+            # check mail
+            if not user.mailbox:
+                mail = '>No offline messages'
+            else:
+                mail = '\n'.join(user.mailbox)
+                thread_clear_mailbox(user)
+
+            delay_send(connection, username,
+                '>Offline Messages:\n' + mail)
+            broadcast_message(username + ' logged in', username)
     elif greeting == 'LIVE':
 
         username = connection.recv(RECV_SIZE)
@@ -329,7 +356,7 @@ def serve_client(connection):
             delay_send(connection, 'BCST', '')
             broadcast_message(username + ': ' + user_input[len('broadcast '):], 
                 username)
-        elif input_array[0] == 'message':
+        elif input_array[0] == 'message' and len(input_array) > 1:
 
             delay_send(connection, 'MESG', '')
             receiver = input_array[1]
@@ -342,11 +369,15 @@ def serve_client(connection):
                 message = user_input[(len('message ') + len(receiver) + 1):]
                 send_message(username + ': ' + message, username, receiver, 
                     'MESG')
-        elif input_array[0] == 'getaddress':
+        elif input_array[0] == 'getaddress' and len(input_array) == 2:
 
             contact = input_array[1]
             contact_user = find_user(contact)
-            if(len(input_array) == 2 and username != contact
+
+            if contact_user == None:
+                delay_send(connection, 'NGET', 
+                    contact + ' is not a valid user.')
+            elif(len(input_array) == 2 and username != contact
                 and contact_user.logged_in):
                 try:
                     user.blocked_me[contact]
@@ -358,10 +389,15 @@ def serve_client(connection):
                         '\'consent '+ username +'\'', username, contact, 'RQST')
             else:
                 delay_send(connection, 'NGET', 'Invalid request')
-        elif input_array[0] == 'consent':
+        elif input_array[0] == 'consent' and len(input_array) == 2:
 
             contact = input_array[1]
-            if len(input_array) == 2 and username != contact:
+            contact_user = find_user(contact)
+
+            if contact_user == None:
+                delay_send(connection, 'NGET', 
+                    contact + ' is not a valid user.')
+            elif len(input_array) == 2 and username != contact:
                 peer = find_user(contact)
                 if username == peer.private_peer:
                     send_message(str(user.port) + ' ' + user.ip +  ' ' + 
@@ -370,18 +406,28 @@ def serve_client(connection):
                     send_message(contact + ' has not requested a P2P chat ' +
                         'with you. Use the getaddress command to start one',
                         contact, username, 'NGET')
-        elif input_array[0] == 'block':
+        elif input_array[0] == 'block' and len(input_array) == 2:
 
             to_block = input_array[1]
-            if len(input_array) == 2 and username != to_block:
+            block_user = find_user(to_block)
+
+            if block_user == None:
+                delay_send(connection, 'NGET', 
+                    to_block + ' is not a valid user.')   
+            elif len(input_array) == 2 and username != to_block:
                 thread_add_blocking_user(find_user(to_block), username)
                 delay_send(connection, 'BLOK', '')
             else:
                 delay_send(connection, 'NBLK', 'Unable to block user')
-        elif input_array[0] == 'unblock':
+        elif input_array[0] == 'unblock' and len(input_array) == 2:
 
             to_unblock = input_array[1]
-            if len(input_array) == 2 and username != to_unblock:
+            unblock_user = find_user(to_unblock)
+
+            if unblock_user == None:
+                delay_send(connection, 'NGET', 
+                    to_unblock + ' is not a valid user.')  
+            elif len(input_array) == 2 and username != to_unblock:
                 thread_remove_blocking_user(find_user(to_unblock), username)
                 delay_send(connection, 'UBLK', '')
             else:
@@ -390,7 +436,6 @@ def serve_client(connection):
             delay_send(connection, 'RECV', 'Invalid Command: ' + user_input)
 
     connection.close()
-    print 'thread terminated'
     return(0)
 
 # parent process which keeps accepting connections
@@ -430,49 +475,6 @@ def main_thread():
         print 'Connected by ', addr
         t = threading.Thread(target=serve_client, args=(conn,))
         t.start()
-
-# authenticate the user
-def authenticate(connection, user, username):
-
-    # timeout is for 3 failed password attempts
-    global TIMEOUT
-
-    # retrieve the correct information
-    count = 0
-    verified = False
-    correct_pass = user.password
-    delay_send(connection, 'PASS', 'Password: ')
-    
-    # loop to give 3 tries
-    while count < 3 and not verified:
-
-        # catch if there are any connection issues
-        try:
-            password = connection.recv(RECV_SIZE)
-        except Exception:
-            print 'connection with user broken'
-
-        # various possibilities of password correctness
-        if password == correct_pass:
-            verified = True
-        elif count == 2:
-
-            # launch timeout thread
-            thread_lock_out_user(user)
-            t = threading.Thread(target=lock_out_timeout, args=(user,))
-            t.daemon = True
-            t.start()
-
-            # send sad message
-            delay_send(connection, 'FAIL', 'Due to multiple login failures, ' + 
-                                   'your account has been blocked. Please ' +
-                                   'try again after ' + str(TIMEOUT) + 
-                                   ' seconds.')
-        else:
-            delay_send(connection, 'DENY', 'Invalid Password. ' + 
-                                           'Please try again\n>Password: ')
-        count = count + 1
-    return verified
 
 # ^C terminate gracefully
 def ctrl_c_handler(signum, frame):

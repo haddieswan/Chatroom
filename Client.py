@@ -129,31 +129,49 @@ def main():
         else:
             CLIENTPORT = start_port + 1
 
-    # basic client socket connection
+
+    # initial contact to get user prompt
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((HOST, PORT))
-
-    delay_send(sock, 'HELO', str(CLIENTPORT) + ' ' + CLIENTHOST)
+    delay_send(sock, 'HELO', ' ')
     reply_code = sock.recv(RECV_SIZE)
     description = sock.recv(RECV_SIZE)
+    sock.close()
 
+    # wait for user to type in username
+    username = raw_input('>' + description)
+
+    # follow-up to get username input
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((HOST, PORT))
+    delay_send(sock, 'USER', username + ' ' + str(CLIENTPORT) + ' ' +
+        CLIENTHOST)
+    reply_code = sock.recv(RECV_SIZE)
+    description = sock.recv(RECV_SIZE)
+    sock.close()
+
+    try_num = 1
     while (reply_code != 'SUCC') and (reply_code != 'FAIL'):
         user_input = raw_input('>' + description)
         if user_input == '':
             user_input = '\n'
-        sock.sendall(user_input)
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((HOST, PORT))
+        delay_send(sock, 'AUTH', username + ' ' + user_input + 
+            ' ' + str(try_num))
+        try_num = try_num + 1
         reply_code = sock.recv(RECV_SIZE)
         description = sock.recv(RECV_SIZE)
+        if reply_code == 'SUCC':
+            USERNAME = sock.recv(RECV_SIZE)
+            mailbox = sock.recv(RECV_SIZE)
+            description = description + '\n' + mailbox            
+        sock.close()
 
     if reply_code == 'FAIL':
         print description
-        sock.close()
         exit(0)
-    else:
-        USERNAME = sock.recv(RECV_SIZE)
-        mailbox = sock.recv(RECV_SIZE)
-        description = description + '\n' + mailbox
-        sock.close()
 
     listener = threading.Thread(target=listener_thread, args=(client_sock,))
     listener.daemon = True
