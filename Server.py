@@ -306,7 +306,7 @@ def serve_client(connection):
             info = connection.recv(RECV_SIZE).split()
         except Exception:
             print 'connection broke'
-            
+
         username = info[0]
         port = info[1]
         ip = info[2]

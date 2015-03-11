@@ -161,7 +161,7 @@ def main():
     # wait for user to type in username
     username = raw_input('>' + description)
     if username == '':
-        username = '\n'
+        username = 'non_user'
 
     # follow-up to get username input
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -177,7 +177,7 @@ def main():
     while (reply_code != 'SUCC') and (reply_code != 'FAIL'):
         user_input = raw_input('>' + description)
         if user_input == '':
-            user_input = '\n'
+            user_input = 'non_pass'
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((HOST, PORT))
