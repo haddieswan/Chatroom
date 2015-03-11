@@ -7,6 +7,7 @@ import random
 import sys
 import os
 
+
 RECV_SIZE = 1024
 HOST = ''
 CLIENTHOST = ''
@@ -20,9 +21,11 @@ p2p_port = 0
 p2p_ip = ''
 p2p_user = ''
 
+# ^C graceful termination
 def ctrl_c_handler(signum, frame):
     exit(0)
 
+# delay send to fix a python socket issue
 def delay_send(connection, code, message):    
     try:
         connection.sendall(code)
@@ -31,6 +34,7 @@ def delay_send(connection, code, message):
     except Exception:
         print 'connection broken'
 
+# serve client of the client (incoming connections)
 def serve_client(connection):
     global lock
     global p2p_lock
@@ -40,6 +44,8 @@ def serve_client(connection):
 
     reply_code = connection.recv(RECV_SIZE)
     message = connection.recv(RECV_SIZE)
+
+    # make sure text arrives in order by locking
     lock.acquire()
     try:
         sys.stdout.write(message + '\n>')
@@ -47,10 +53,12 @@ def serve_client(connection):
     finally:
         lock.release()
 
+    # exit if someone else logs you off
     if reply_code == 'LOGO':
         connection.close()
         os._exit(1)
 
+    # safely update the p2p information if received
     if reply_code == 'GETA':
         p2p_lock.acquire()
         try:
@@ -64,6 +72,7 @@ def serve_client(connection):
     connection.close()
     return(0)
 
+# manager thread for clients of client
 def listener_thread(client_sock):
 
     while True:
@@ -71,6 +80,7 @@ def listener_thread(client_sock):
         server = threading.Thread(target=serve_client, args=(conn,))
         server.start()
 
+# heartbeat thread that periodically pings server
 def heartbeat():
 
     global HOST
@@ -84,6 +94,7 @@ def heartbeat():
     description = sock.recv(RECV_SIZE)
     sock.close()
 
+    # run as daemon so that everything terminates at close
     time.sleep(HEARTBEAT)
     t = threading.Thread(target=heartbeat)
     t.daemon = True
@@ -108,9 +119,11 @@ def main():
     PORT = int(sys.argv[2])
     CLIENTHOST = socket.gethostbyname(socket.gethostname())
 
+    # pick a random port to minimize collisions
     CLIENTPORT = random.randint(1023, 65535)
     while True:
 
+        # communicate client port and ip information to server
         client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((HOST, PORT))
@@ -119,6 +132,7 @@ def main():
         reply_code = sock.recv(RECV_SIZE)
         description = sock.recv(RECV_SIZE)
 
+        # make sure that the port is good, otherwise linear probing
         if reply_code == 'GDPT':
             try:
                 client_sock.bind((CLIENTHOST, CLIENTPORT))
@@ -150,6 +164,7 @@ def main():
     description = sock.recv(RECV_SIZE)
     sock.close()
 
+    # 3 password tries
     try_num = 1
     while (reply_code != 'SUCC') and (reply_code != 'FAIL'):
         user_input = raw_input('>' + description)
@@ -160,23 +175,28 @@ def main():
         sock.connect((HOST, PORT))
         delay_send(sock, 'AUTH', username + ' ' + user_input + 
             ' ' + str(try_num))
+        
         try_num = try_num + 1
         reply_code = sock.recv(RECV_SIZE)
         description = sock.recv(RECV_SIZE)
+        
         if reply_code == 'SUCC':
             USERNAME = sock.recv(RECV_SIZE)
             mailbox = sock.recv(RECV_SIZE)
             description = description + '\n' + mailbox            
+        
         sock.close()
 
     if reply_code == 'FAIL':
         print description
         exit(0)
 
+    # launch the client listening thread
     listener = threading.Thread(target=listener_thread, args=(client_sock,))
     listener.daemon = True
     listener.start()
 
+    # launch the heartbeat thread
     t = threading.Thread(target=heartbeat)
     t.daemon = True
     t.start()
@@ -187,6 +207,7 @@ def main():
     global p2p_user
     logged_in = True
 
+    # user command and input
     while logged_in:
 
 
@@ -205,6 +226,7 @@ def main():
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         p2p = False
+        # test for p2p case
         if len(input_array) >= 2:
             if input_array[0] == 'private' and input_array[1] == p2p_user:
                 p2p = True
