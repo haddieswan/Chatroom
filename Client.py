@@ -134,6 +134,8 @@ def main():
 
     while (reply_code != 'SUCC') and (reply_code != 'FAIL'):
         user_input = raw_input('>' + description)
+        if user_input == '':
+            user_input = '\n'
         sock.sendall(user_input)
         reply_code = sock.recv(RECV_SIZE)
         description = sock.recv(RECV_SIZE)

@@ -10,12 +10,12 @@ from multiprocessing import Lock
 
 RECV_SIZE = 1024
 TIMEOUT = 45
-LOCKOUT = 30
+LOCKOUT = 60
+PORT = 0
+HOST = ''
 user_list = []
 lock = Lock()
 user_lock = 0
-PORT = 0
-HOST = ''
 
 # class for users on the client side
 class User:
@@ -173,15 +173,20 @@ def get_online_users():
 def broadcast_message(message, sender):
     global user_list
 
+    send_user = find_user(sender)
     for user in user_list:
-        if user.logged_in == True and user.username != sender:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            try:
-                sock.connect((user.ip, user.port))
-                delay_send(sock, 'BCST', message)
-            except Exception:
-                print 'client connection closed'
-            sock.close()
+        try:
+            send_user.blocked_me[user.username]
+            continue
+        except Exception:
+            if user.logged_in == True and user.username != sender:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                try:
+                    sock.connect((user.ip, user.port))
+                    delay_send(sock, 'BCST', message)
+                except Exception:
+                    print 'client connection closed'
+                sock.close()
 
 def send_message(message, sender, receiver, code):
 
@@ -429,27 +434,37 @@ def main_thread():
 
 # authenticate the user
 def authenticate(connection, user, username):
+
+    # timeout is for 3 failed password attempts
     global TIMEOUT
 
+    # retrieve the correct information
     count = 0
     verified = False
     correct_pass = user.password
     delay_send(connection, 'PASS', 'Password: ')
     
+    # loop to give 3 tries
     while count < 3 and not verified:
+
+        # catch if there are any connection issues
         try:
             password = connection.recv(RECV_SIZE)
         except Exception:
             print 'connection with user broken'
 
+        # various possibilities of password correctness
         if password == correct_pass:
             verified = True
         elif count == 2:
+
+            # launch timeout thread
             thread_lock_out_user(user)
             t = threading.Thread(target=lock_out_timeout, args=(user,))
             t.daemon = True
             t.start()
 
+            # send sad message
             delay_send(connection, 'FAIL', 'Due to multiple login failures, ' + 
                                    'your account has been blocked. Please ' +
                                    'try again after ' + str(TIMEOUT) + 
@@ -458,12 +473,13 @@ def authenticate(connection, user, username):
             delay_send(connection, 'DENY', 'Invalid Password. ' + 
                                            'Please try again\n>Password: ')
         count = count + 1
-
     return verified
 
+# ^C terminate gracefully
 def ctrl_c_handler(signum, frame):
     exit(0)
 
+# kick off signal handlers and the main thread
 def main():
     signal.signal(signal.SIGINT, ctrl_c_handler)
     signal.signal(signal.SIGPIPE, signal.SIG_IGN)
