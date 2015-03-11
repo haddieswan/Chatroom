@@ -313,6 +313,8 @@ def serve_client(connection):
 
         if user == None:
             print 'user broke off'
+        elif user_input == '\n':
+            print 'pressed enter'
         elif user_input == 'logout':
 
             thread_remove_user(user)
@@ -325,22 +327,19 @@ def serve_client(connection):
         elif input_array[0] == 'broadcast':
 
             delay_send(connection, 'BCST', '')
-            input_array.remove(input_array[0])
-            message = ' '.join(input_array)
-            broadcast_message(username + ': ' + message, username)
+            broadcast_message(username + ': ' + user_input[len('broadcast '):], 
+                username)
         elif input_array[0] == 'message':
 
             delay_send(connection, 'MESG', '')
             receiver = input_array[1]
-            input_array.remove(input_array[0])
-            input_array.remove(input_array[0])
 
             try:
                 user.blocked_me[receiver]
                 send_message('You are blocked by ' + receiver, '', 
                     username, 'MESG')
             except Exception:
-                message = ' '.join(input_array)
+                message = user_input[(len('message ') + len(receiver) + 1):]
                 send_message(username + ': ' + message, username, receiver, 
                     'MESG')
         elif input_array[0] == 'getaddress':
@@ -388,7 +387,7 @@ def serve_client(connection):
             else:
                 delay_send(connection, 'NUBK', 'Unable to unblock user')
         else:
-            delay_send(connection, 'RECV', 'server: ' + user_input)
+            delay_send(connection, 'RECV', 'Invalid Command: ' + user_input)
 
     connection.close()
     print 'thread terminated'

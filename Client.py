@@ -176,16 +176,19 @@ def main():
             
         description = ''
         user_input = raw_input()
+        if user_input == '':
+            user_input = '\n'
         input_array = user_input.split()
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        if input_array[0] == 'private' and input_array[1] == p2p_user:
+        p2p = False
+        if len(input_array) >= 2:
+            if input_array[0] == 'private' and input_array[1] == p2p_user:
+                p2p = True
+        if p2p:
             sock.connect((p2p_ip, p2p_port))
-            input_array.reverse()
-            input_array.pop()
-            input_array.pop()
-            input_array.reverse()
-            delay_send(sock, 'P2PC', USERNAME + ': ' + ' '.join(input_array))
+            message = user_input[(len('private ') + len(p2p_user) + 1):]
+            delay_send(sock, 'P2PC', USERNAME + ': ' + message)
         else:
             sock.connect((HOST, PORT))
             delay_send(sock, 'CMND', user_input)
@@ -198,9 +201,7 @@ def main():
             if reply_code == 'LOGO':
                 logged_in = False
         sock.close()
-
     exit(0)
-
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, ctrl_c_handler)
