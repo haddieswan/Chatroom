@@ -20,15 +20,17 @@ HOST = ''
 class User:
     'Common class for all users in this chat program'
 
-    def __init__(self, username, password, active, loggedin):
+    def __init__(self, username, password):
         self.username = username
         self.password = password
-        self.active = active
-        self.loggedin = loggedin
+        self.active = False
+        self.logged_in = False
         self.port = 0
         self.ip = ''
         self.mailbox = []
         self.blocked_me = {}
+        self.private_peer = ''
+        self.locked_out = False
 
     def __str__(self):
         return self.username
@@ -46,7 +48,7 @@ def thread_add_user(user):
     global lock
     lock.acquire()
     try:
-        user.loggedin = True
+        user.logged_in = True
     finally:
         lock.release()
 
@@ -55,7 +57,7 @@ def thread_remove_user(user):
     global lock
     lock.acquire()
     try:
-        user.loggedin = False
+        user.logged_in = False
         user.port = 0
     finally:
         lock.release()
@@ -95,6 +97,14 @@ def thread_remove_blocking_user(user, blocking_user):
     finally:
         lock.release()
 
+def thread_add_private_peer(user, peer):
+    global lock
+    lock.acquire()
+    try:
+        user.private_peer = peer
+    finally:
+        lock.release()
+
 # multithread safe check of all the live users
 def thread_check_pulse():
     global lock
@@ -102,8 +112,8 @@ def thread_check_pulse():
     lock.acquire()
     try:
         for user in user_list:
-            if user.loggedin == True and user.active == False:
-                user.loggedin = False
+            if user.logged_in == True and user.active == False:
+                user.logged_in = False
                 broadcast_message(user.username + ' logged out', user.username)
             user.active = False
     finally:
@@ -138,7 +148,7 @@ def get_online_users():
     username_list = []
 
     for user in user_list:
-        if user.loggedin == True:
+        if user.logged_in == True:
             username_list.append(user.username)
 
     return '\n'.join(username_list)
@@ -147,16 +157,16 @@ def broadcast_message(message, sender):
     global user_list
 
     for user in user_list:
-        if user.loggedin == True and user.username != sender:
+        if user.logged_in == True and user.username != sender:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
                 sock.connect((user.ip, user.port))
-                sock.sendall(message)
+                delay_send(sock, 'BCST', message)
             except Exception:
                 print 'client connection closed'
             sock.close()
 
-def send_message(message, sender, receiver):
+def send_message(message, sender, receiver, code):
 
     rec_user = find_user(receiver)
     if rec_user == None or receiver == sender:
@@ -164,16 +174,16 @@ def send_message(message, sender, receiver):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.connect((ret_user.ip, ret_user.port))
-            sock.sendall(receiver + ' is not a valid user.')
+            delay_send(sock, code, receiver + ' is not a valid user.')
         except Exception:
             # guaranteed delivery, will at least go to mailbox
             thread_add_to_mailbox(ret_user, message)
         sock.close()
-    elif rec_user.loggedin == True:
+    elif rec_user.logged_in == True:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.connect((rec_user.ip, rec_user.port))
-            sock.sendall(message)
+            delay_send(sock, code, message)
         except Exception:
             # guaranteed delivery, will at least go to mailbox
             thread_add_to_mailbox(rec_user, message)
@@ -231,7 +241,7 @@ def serve_client(connection):
 
             if verified:
 
-                if user.loggedin == False:
+                if user.logged_in == False:
                     thread_add_user(user)
                     thread_add_user_port_ip(user, port, ip)
                     delay_send(connection, 'SUCC', 
@@ -259,7 +269,7 @@ def serve_client(connection):
 
         if user == None:
             print 'user broke off'
-        elif user.loggedin == False:
+        elif user.logged_in == False:
             print 'user died, no heartbeat'
         else:
             thread_update_live_user(user)
@@ -297,23 +307,40 @@ def serve_client(connection):
 
             try:
                 user.blocked_me[receiver]
-                send_message('You are blocked by ' + receiver, '', username)
+                send_message('You are blocked by ' + receiver, '', 
+                    username, 'MESG')
             except Exception:
                 message = ' '.join(input_array)
-                send_message(username + ': ' + message, username, receiver)
+                send_message(username + ': ' + message, username, receiver, 
+                    'MESG')
         elif input_array[0] == 'getaddress':
 
             contact = input_array[1]
-            if len(input_array) == 2 and username != contact:
+            contact_user = find_user(contact)
+            if(len(input_array) == 2 and username != contact
+                and contact_user.logged_in):
                 try:
                     user.blocked_me[contact]
                     delay_send(connection, 'NGET', 'Blocked by ' + contact)
                 except Exception:
-                    contact_user = find_user(contact)
-                    delay_send(connection, 'GETA', str(contact_user.port) + ' '
-                        + contact_user.ip + ' ' + contact)
+                    thread_add_private_peer(user, contact)
+                    send_message(username + ' is requesting a private chat. ' + 
+                        'To share your IP and port with them, reply saying ' +
+                        '\'consent '+ username +'\'', username, contact, 'RQST')
             else:
-                delay_send(connection, 'NGET', 'Unable to retrieve port')
+                delay_send(connection, 'NGET', 'Invalid request')
+        elif input_array[0] == 'consent':
+
+            contact = input_array[1]
+            if len(input_array) == 2 and username != contact:
+                peer = find_user(contact)
+                if username == peer.private_peer:
+                    send_message(str(user.port) + ' ' + user.ip +  ' ' + 
+                        username, username, contact, 'GETA')
+                else:
+                    send_message(contact + ' has not requested a P2P chat ' +
+                        'with you. Use the getaddress command to start one',
+                        contact, username, 'NGET')
         elif input_array[0] == 'block':
 
             to_block = input_array[1]
@@ -360,7 +387,7 @@ def main_thread():
     while next_line != '':
         line = str.split(next_line, '\n')
         line = str.split(line[0], ' ')
-        user_list.append(User(line[0], line[1], False, False))
+        user_list.append(User(line[0], line[1]))
         next_line = file_obj.readline()
     
     check = threading.Thread(target=thread_check_pulse)

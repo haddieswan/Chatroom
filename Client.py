@@ -14,6 +14,10 @@ HEARTBEAT = 30
 PORT = 0
 USERNAME = ''
 lock = Lock()
+p2p_lock = Lock()
+p2p_port = 0
+p2p_ip = ''
+p2p_user = ''
 
 def ctrl_c_handler(signum, frame):
     exit(0)
@@ -28,7 +32,12 @@ def delay_send(connection, code, message):
 
 def serve_client(connection):
     global lock
+    global p2p_lock
+    global p2p_port
+    global p2p_ip
+    global p2p_user
 
+    reply_code = connection.recv(RECV_SIZE)
     message = connection.recv(RECV_SIZE)
     lock.acquire()
     try:
@@ -36,6 +45,17 @@ def serve_client(connection):
         sys.stdout.flush()
     finally:
         lock.release()
+
+    if reply_code == 'GETA':
+        p2p_lock.acquire()
+        try:
+            private_info = message.split()
+            p2p_port = int(private_info[0])
+            p2p_ip = private_info[1]
+            p2p_user = private_info[2]
+        finally:
+            p2p_lock.release()
+
     connection.close()
     return(0)
 
@@ -136,14 +156,15 @@ def main():
     t.daemon = True
     t.start()
 
+    global lock
+    global p2p_port
+    global p2p_ip
+    global p2p_user
     logged_in = True
-    p2p_port = 0
-    p2p_ip = ''
-    p2p_user = ''
 
     while logged_in:
 
-        global lock
+
         lock.acquire()
         try:
             sys.stdout.write(description + '\n>')
@@ -162,7 +183,7 @@ def main():
             input_array.pop()
             input_array.pop()
             input_array.reverse()
-            sock.sendall(USERNAME + ': ' + ' '.join(input_array))
+            delay_send(sock, 'P2PC', USERNAME + ': ' + ' '.join(input_array))
         else:
             sock.connect((HOST, PORT))
             delay_send(sock, 'CMND', user_input)
@@ -174,11 +195,6 @@ def main():
 
             if reply_code == 'LOGO':
                 logged_in = False
-            elif reply_code == 'GETA':
-                private_info = description.split()
-                p2p_port = int(private_info[0])
-                p2p_ip = private_info[1]
-                p2p_user = private_info[2]
         sock.close()
 
     exit(0)
