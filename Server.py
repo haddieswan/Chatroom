@@ -147,7 +147,8 @@ def thread_check_pulse():
         for user in user_list:
             if user.logged_in == True and user.active == False:
                 user.logged_in = False
-                broadcast_message(user.username + ' logged out', user.username)
+                broadcast_message(user.username + ' logged out', user.username,
+                    False)
             user.active = False
     finally:
         lock.release()
@@ -160,33 +161,51 @@ def thread_check_pulse():
     return(0)
 
 # return string with pretty printed online users
-def get_online_users():
+def get_online_users(current_user):
     global user_list
     username_list = []
 
     for user in user_list:
-        if user.logged_in == True:
-            username_list.append(user.username)
+        if user.logged_in == True and user is not current_user:
+            try:
+                current_user.blocked_me[user.username]
+                continue
+            except Exception:
+                username_list.append(user.username)
 
     return '\n'.join(username_list)
 
-def broadcast_message(message, sender):
+def broadcast_message(message, sender, is_login):
     global user_list
 
     send_user = find_user(sender)
     for user in user_list:
-        try:
-            send_user.blocked_me[user.username]
-            continue
-        except Exception:
-            if user.logged_in == True and user.username != sender:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                try:
-                    sock.connect((user.ip, user.port))
-                    delay_send(sock, 'BCST', message)
-                except Exception:
-                    print 'client connection closed'
-                sock.close()
+        if is_login:
+            try:
+                user.blocked_me[send_user.username]
+                continue
+            except Exception:
+                if user.logged_in == True and user.username != sender:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    try:
+                        sock.connect((user.ip, user.port))
+                        delay_send(sock, 'BCST', message)
+                    except Exception:
+                        print 'client connection closed'
+                    sock.close()
+        else:
+            try:
+                send_user.blocked_me[user.username]
+                continue
+            except Exception:
+                if user.logged_in == True and user.username != sender:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    try:
+                        sock.connect((user.ip, user.port))
+                        delay_send(sock, 'BCST', message)
+                    except Exception:
+                        print 'client connection closed'
+                    sock.close()
 
 def send_message(message, sender, receiver, code):
 
@@ -317,7 +336,7 @@ def serve_client(connection):
 
             delay_send(connection, username,
                 '>Offline Messages:\n' + mail)
-            broadcast_message(username + ' logged in', username)
+            broadcast_message(username + ' logged in', username, True)
     elif greeting == 'LIVE':
 
         username = connection.recv(RECV_SIZE)
@@ -346,16 +365,16 @@ def serve_client(connection):
 
             thread_remove_user(user)
             delay_send(connection, 'LOGO', 'logout')
-            broadcast_message(username + ' logged out', username)
+            broadcast_message(username + ' logged out', username, True)
         elif user_input == 'online':
 
-            online_users = get_online_users()
+            online_users = get_online_users(user)
             delay_send(connection, 'ONLN', online_users)
         elif input_array[0] == 'broadcast':
 
             delay_send(connection, 'BCST', '')
             broadcast_message(username + ': ' + user_input[len('broadcast '):], 
-                username)
+                username, False)
         elif input_array[0] == 'message' and len(input_array) > 1:
 
             delay_send(connection, 'MESG', '')
@@ -416,7 +435,8 @@ def serve_client(connection):
                     to_block + ' is not a valid user.')   
             elif len(input_array) == 2 and username != to_block:
                 thread_add_blocking_user(find_user(to_block), username)
-                delay_send(connection, 'BLOK', '')
+                delay_send(connection, 'BLOK', 'User ' + to_block + 
+                    ' has been blocked')
             else:
                 delay_send(connection, 'NBLK', 'Unable to block user')
         elif input_array[0] == 'unblock' and len(input_array) == 2:
@@ -429,7 +449,8 @@ def serve_client(connection):
                     to_unblock + ' is not a valid user.')  
             elif len(input_array) == 2 and username != to_unblock:
                 thread_remove_blocking_user(find_user(to_unblock), username)
-                delay_send(connection, 'UBLK', '')
+                delay_send(connection, 'UBLK', 'User ' + to_unblock +
+                    ' is unblocked')
             else:
                 delay_send(connection, 'NUBK', 'Unable to unblock user')
         else:

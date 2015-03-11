@@ -209,9 +209,13 @@ def main():
             if input_array[0] == 'private' and input_array[1] == p2p_user:
                 p2p = True
         if p2p:
-            sock.connect((p2p_ip, p2p_port))
-            message = user_input[(len('private ') + len(p2p_user) + 1):]
-            delay_send(sock, 'P2PC', USERNAME + ': ' + message)
+            try:
+                sock.connect((p2p_ip, p2p_port))
+                message = user_input[(len('private ') + len(p2p_user) + 1):]
+                delay_send(sock, 'P2PC', USERNAME + ': ' + message)
+            except Exception:
+                print (p2p_user + ' is no longer at this address. You can ' +
+                    'send them an offline message through the server.')
         else:
             sock.connect((HOST, PORT))
             delay_send(sock, 'CMND', user_input)
