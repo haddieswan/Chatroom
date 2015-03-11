@@ -10,6 +10,7 @@ from multiprocessing import Lock
 
 RECV_SIZE = 1024
 TIMEOUT = 45
+LOCKOUT = 30
 user_list = []
 lock = Lock()
 user_lock = 0
@@ -105,6 +106,38 @@ def thread_add_private_peer(user, peer):
     finally:
         lock.release()
 
+def thread_lock_out_user(user):
+    global lock
+    lock.acquire()
+    try:
+        user.locked_out = True
+    finally:
+        lock.release()
+
+def thread_unlock_out_user(user):
+    global lock
+    lock.acquire()
+    try:
+        user.locked_out = False
+    finally:
+        lock.release()
+
+def thread_add_to_mailbox(user, message):
+    global lock
+    lock.acquire()
+    try:
+        user.mailbox.append(message)
+    finally:
+        lock.release()
+
+def thread_clear_mailbox(user):
+    global lock
+    lock.acquire()
+    try:
+        user.mailbox = []
+    finally:
+        lock.release()
+
 # multithread safe check of all the live users
 def thread_check_pulse():
     global lock
@@ -125,22 +158,6 @@ def thread_check_pulse():
     check.start()
     
     return(0)
-
-def thread_add_to_mailbox(user, message):
-    global lock
-    lock.acquire()
-    try:
-        user.mailbox.append(message)
-    finally:
-        lock.release()
-
-def thread_clear_mailbox(user):
-    global lock
-    lock.acquire()
-    try:
-        user.mailbox = []
-    finally:
-        lock.release()
 
 # return string with pretty printed online users
 def get_online_users():
@@ -206,6 +223,11 @@ def check_port_free(port_number):
             return False
     return True
 
+def lock_out_timeout(user):
+    global LOCKOUT
+    time.sleep(LOCKOUT)
+    thread_unlock_out_user(user)
+    return 0
 
 # serve the connections
 def serve_client(connection):
@@ -235,8 +257,11 @@ def serve_client(connection):
                 delay_send(connection, 'FAIL', 'User not found. Try again')
             except Exception:
                 print 'client connection closed'
+        elif user.locked_out == True:
+            delay_send(connection, 'FAIL', 
+                'Your account is still locked out\n')
         else:
-            # otherwise, it passes the first test
+            # otherwise, it passes the first tests
             verified = authenticate(connection, user, username)
 
             if verified:
@@ -404,6 +429,7 @@ def main_thread():
 
 # authenticate the user
 def authenticate(connection, user, username):
+    global TIMEOUT
 
     count = 0
     verified = False
@@ -419,9 +445,15 @@ def authenticate(connection, user, username):
         if password == correct_pass:
             verified = True
         elif count == 2:
+            thread_lock_out_user(user)
+            t = threading.Thread(target=lock_out_timeout, args=(user,))
+            t.daemon = True
+            t.start()
+
             delay_send(connection, 'FAIL', 'Due to multiple login failures, ' + 
                                    'your account has been blocked. Please ' +
-                                   'try again after some time has passed.')
+                                   'try again after ' + str(TIMEOUT) + 
+                                   ' seconds.')
         else:
             delay_send(connection, 'DENY', 'Invalid Password. ' + 
                                            'Please try again\n>Password: ')
