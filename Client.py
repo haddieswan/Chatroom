@@ -160,6 +160,8 @@ def main():
 
     # wait for user to type in username
     username = raw_input('>' + description)
+    if username == '':
+        username = '\n'
 
     # follow-up to get username input
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
