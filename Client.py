@@ -5,6 +5,7 @@ import time
 import threading
 import random
 import sys
+import os
 
 RECV_SIZE = 1024
 HOST = ''
@@ -48,7 +49,7 @@ def serve_client(connection):
 
     if reply_code == 'LOGO':
         connection.close()
-        exit(0)
+        os._exit(1)
 
     if reply_code == 'GETA':
         p2p_lock.acquire()
